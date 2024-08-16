@@ -1,0 +1,4 @@
+---
+mysql_root_password: "password"
+zabbix_db_user: "zabbix"
+zabbix_db_password: "zabbix"

@@ -1,0 +1,52 @@
+---
+- name: Instalar msodbcsql y configurar ODBC en Ubuntu Server 22.04
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Agregar la clave de Microsoft
+      ansible.builtin.apt_key:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        state: present
+
+    - name: Agregar el repositorio de Microsoft
+      ansible.builtin.apt_repository:
+        repo: deb [arch=amd64] https://packages.microsoft.com/ubuntu/22.04/prod jammy main
+        filename: mssql-release
+        state: present
+
+    - name: Actualizar la caché de apt
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Instalar msodbcsql18 y unixodbc-dev
+      ansible.builtin.apt:
+        name: 
+          - msodbcsql18
+          - unixodbc-dev
+        state: present
+        allow_unauthenticated: yes
+
+    - name: Instalar paquetes adicionales
+      ansible.builtin.apt:
+        name:
+          - libsnmp-dev
+          - libevent-dev
+          - libpcre3-dev
+        state: present
+
+    - name: Renombrar odbc.ini existente
+      ansible.builtin.command:
+        cmd: mv /etc/odbc.ini /etc/odbc.default.ini
+        args:
+          creates: /etc/odbc.default.ini
+
+    - name: Mover odbc.ini
+      ansible.builtin.copy:
+        src: ./odbc.ini
+        dest: /etc/odbc.ini
+
+    - name: Mover odbcinst.ini
+      ansible.builtin.copy:
+        src: ./odbcinst.ini
+        dest: /etc/odbcinst.ini

@@ -1,0 +1,138 @@
+---
+- name: Instalar Zabbix Server 7.0 en Ubuntu 22.04
+  hosts: complete
+  become: yes
+
+  vars_files:
+    - variables-zabbix.yml
+
+  tasks:
+    - name: Installing Mysql and dependencies
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - mysql-server
+        - mysql-client
+        - python3-mysqldb
+        - libmysqlclient-dev
+        - curl
+        - apache2
+
+    - name: Configurar locales
+      ansible.builtin.command: locale-gen es_ES.UTF-8
+
+    - name: Descargar e instalar el repositorio de Zabbix
+      ansible.builtin.get_url:
+        url: https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu22.04_all.deb
+        dest: /tmp/zabbix-release_7.0-1+ubuntu22.04_all.deb
+
+    - name: Instalar el repositorio de Zabbix
+      ansible.builtin.apt:
+        deb: /tmp/zabbix-release_7.0-1+ubuntu22.04_all.deb
+        state: present
+
+    - name: Actualizar cache de paquetes
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Instalar Zabbix Server, frontend y agente
+      ansible.builtin.apt:
+        name:
+          - zabbix-server-mysql
+          - zabbix-frontend-php
+          - zabbix-apache-conf
+          - zabbix-sql-scripts
+          - zabbix-agent
+        state: present
+
+    - name: start and enable mysql service
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Set root password for MySQL
+      mysql_user:
+        name: root
+        host: localhost
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: Remove the anonymous MySQL user
+      mysql_user:
+        name: ''
+        host: localhost
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: creating mysql user
+      mysql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_pass }}"
+        priv: '*.*:ALL'
+        host: '%'
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: creating zabbix DB
+      mysql_db:
+        name: "{{ db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Enable remote login to mysql
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address'
+        line: 'bind-address = 0.0.0.0'
+        backup: yes
+      notify:
+        - Restart mysql
+
+    - name: Importar el esquema inicial y los datos a MySQL
+      ansible.builtin.mysql_db:
+        name: zabbix
+        state: import
+        target: /usr/share/zabbix-sql-scripts/mysql/server.sql.gz
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_pass }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Configurar Zabbix Server
+      ansible.builtin.replace:
+        path: /etc/zabbix/zabbix_server.conf
+        regexp: '# DBPassword='
+        replace: 'DBPassword={{ db_pass }}'
+        backup: yes
+
+    - name: Reiniciar servicios de Zabbix
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - zabbix-server
+        - zabbix-agent
+
+    - name: Habilitar y reiniciar Apache
+      ansible.builtin.service:
+        name: apache2
+        state: restarted
+        enabled: yes
+
+    - name: Eliminar el archivo de configuración temporal de Zabbix
+      ansible.builtin.file:
+        path: /tmp/zabbix-release_7.0-1+ubuntu22.04_all.deb
+        state: absent
+
+ handlers:
+    - name: Restart mysql
+      service:
+        name: mysql
+        state: restarted
